@@ -8,10 +8,13 @@ use hashbrown::HashMap;
 use parking_lot::{Mutex, RwLock};
 use tracing::warn;
 
+pub mod backend;
 pub mod block;
 pub mod guard;
 pub mod lru;
+pub mod mock_io;
 pub mod policy;
+pub mod stroage;
 
 pub struct CacheManager<K, P>
 where
