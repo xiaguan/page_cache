@@ -3,6 +3,12 @@ use parking_lot::RwLock;
 
 pub const BLOCK_SIZE: usize = 512 * 1024;
 
+enum BlockStatus {
+    Dirty(String),
+    Clean,
+    Error(String),
+}
+
 pub struct Block {
     data: Vec<u8>,
     pin_count: u32,

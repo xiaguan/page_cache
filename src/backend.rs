@@ -14,7 +14,14 @@ impl Backend {
 
     pub async fn load(&self, path: &str, buf: &mut Vec<u8>) {
         let mut reader = self.operator.reader(&path).await.unwrap();
-        reader.read(buf);
+        let mut read_size = 0;
+        while read_size < buf.len() {
+            let size = reader.read(&mut buf[read_size..]).await.unwrap();
+            if size == 0 {
+                break;
+            }
+            read_size += size;
+        }
     }
 
     pub async fn store(&self, path: &str, buf: &[u8]) {

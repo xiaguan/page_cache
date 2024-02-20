@@ -11,10 +11,11 @@ use tracing::warn;
 pub mod backend;
 pub mod block;
 pub mod guard;
+pub mod handle;
 pub mod lru;
 pub mod mock_io;
 pub mod policy;
-pub mod stroage;
+pub mod storage;
 
 pub struct CacheManager<K, P>
 where
@@ -24,25 +25,18 @@ where
     policy: P,
     map: HashMap<K, Arc<RwLock<Block>>>,
     free_list: VecDeque<Vec<u8>>,
-    weak_self: Weak<Mutex<Self>>,
-    tx: Sender<(K, Arc<RwLock<Block>>)>,
 }
-
 impl<K, P> CacheManager<K, P>
 where
     K: Eq + std::hash::Hash + Clone,
     P: policy::EvictPolicy<K>,
 {
-    pub fn new(capacity: usize, tx: Sender<(K, Arc<RwLock<Block>>)>) -> Arc<Mutex<Self>> {
-        let manager = Arc::new(Mutex::new(CacheManager {
+    pub fn new(capacity: usize) -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(CacheManager {
             policy: P::new(capacity),
             map: HashMap::with_capacity(capacity),
             free_list: VecDeque::from(vec![vec![0; BLOCK_SIZE]; capacity]),
-            weak_self: Weak::new(),
-            tx,
-        }));
-        manager.lock().weak_self = Arc::downgrade(&manager);
-        manager
+        }))
     }
 
     fn get_free_block(&mut self, key: &K) -> Option<Arc<RwLock<Block>>> {
@@ -92,39 +86,17 @@ where
         // If a block is pinned, it must exist in the map.
         let block_ref = self.map.get(key).unwrap();
         let mut block = block_ref.write();
-        if block.pin_count() == 1 && block.dirty() {
-            // Send to write back thread.
-            println!("Sending block to write back thread in unpin");
-            let _ = self.tx.send((key.clone(), block_ref.clone()));
-            return;
-        }
         block.unpin();
         if block.pin_count() == 0 {
-            println!("Block is now evictable");
+            assert!(block.dirty() == false);
             self.policy.set_evictable(key, true);
         }
     }
 
-    pub fn read(&self, key: &K) -> Option<ReadGuard<K, P>> {
-        let guard = self.map.get(key)?.read();
-        Some(guard::ReadGuard::new(
-            guard,
-            key.clone(),
-            self.weak_self.clone(),
-        ))
-    }
-
-    pub fn write(&self, key: &K) -> Option<WriteGuard<K, P>> {
-        let block = self.map.get(key)?;
-        // Send to write back thread.
-        let _ = self.tx.send((key.clone(), block.clone()));
-        // Pin the block for write back, after write back the block will be unpinned.
+    pub fn fetch(&self, key: &K) -> Option<Arc<RwLock<Block>>> {
+        let block = self.map.get(key)?.clone();
+        self.policy.access(key);
         block.write().pin();
-        let guard = block.write();
-        Some(guard::WriteGuard::new(
-            guard,
-            key.clone(),
-            self.weak_self.clone(),
-        ))
+        Some(block)
     }
 }
