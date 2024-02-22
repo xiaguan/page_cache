@@ -64,7 +64,6 @@ impl Reader {
             .await;
         {
             let mut block = new_block.write();
-
             block.as_mut().copy_from_slice(&buf);
         }
         println!("Read from backend: {:?}", size);

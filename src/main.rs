@@ -26,8 +26,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("write Time: {:?}", end - start);
 
     let flag = OpenFlag::Read;
-    let start = std::time::Instant::now();
     let fh = storage.open(10, flag);
+    // Warm up
+    for i in 0..256 {
+        let buf = storage
+            .read(10, fh, i * BLOCK_SIZE as u64, BLOCK_SIZE)
+            .await;
+        assert_eq!(buf.len(), BLOCK_SIZE);
+    }
+    println!("Warm up finish");
+    let start = std::time::Instant::now();
+
     for i in 0..256 {
         let buf = storage
             .read(10, fh, i * BLOCK_SIZE as u64, BLOCK_SIZE)

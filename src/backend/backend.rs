@@ -60,7 +60,7 @@ pub fn memory_backend() -> Backend {
 
 pub fn tmp_fs_backend() -> Backend {
     let mut builder = Fs::default();
-    builder.root("/home/jinyang/backend/");
+    builder.root("/tmp/backend/");
     let op = Operator::new(builder).unwrap().finish();
     Backend::new(op)
 }
