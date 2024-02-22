@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use page_cache::backend::backend::{memory_backend, tmp_fs_backend};
+use page_cache::backend::backend::memory_backend;
 use page_cache::block::BLOCK_SIZE;
 use page_cache::handle::handle::OpenFlag;
 use page_cache::lru::LruPolicy;
@@ -10,7 +10,7 @@ use page_cache::CacheManager;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let backend = Arc::new(tmp_fs_backend());
+    let backend = Arc::new(memory_backend());
     let manger = CacheManager::<CacheKey, LruPolicy<CacheKey>>::new(10000);
     let storage = Arc::new(Storage::new(manger, backend));
     let content = vec![b'1'; BLOCK_SIZE];
