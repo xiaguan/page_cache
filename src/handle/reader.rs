@@ -3,7 +3,7 @@ use std::sync::Arc;
 use parking_lot::{Mutex, RwLock};
 
 use crate::backend::Backend;
-use crate::block::{format_path, Block};
+use crate::block::{format_path, Block, BLOCK_SIZE};
 use crate::block_slice::BlockSlice;
 use crate::lru::LruPolicy;
 use crate::mock_io::CacheKey;
@@ -45,12 +45,16 @@ impl Reader {
             block_id,
         };
         let new_block = self.cache.lock().new_block(&key).unwrap();
+        let mut buf = Vec::with_capacity(BLOCK_SIZE);
+        let size = self
+            .backend
+            .read(&format_path(block_id, self.ino), &mut buf)
+            .await;
         {
             let mut block = new_block.write();
-            self.backend
-                .read(&format_path(block_id, self.ino), &mut block)
-                .await;
+            block.as_mut().copy_from_slice(&buf);
         }
+        println!("Read from backend: {:?}", size);
         new_block
     }
 
@@ -59,8 +63,14 @@ impl Reader {
             let block_id = slice.block_id();
             // Block's pin count is increased by 1.
             let block = match self.fetch_block_from_cache(block_id) {
-                Some(block) => block,
-                None => self.fetch_block_from_backend(block_id).await,
+                Some(block) => {
+                    println!("The block is already cached");
+                    block
+                }
+                None => {
+                    println!("The block is not cached , create a new one");
+                    self.fetch_block_from_backend(block_id).await
+                }
             };
             {
                 // Copy the data from the block to the buffer.
@@ -75,6 +85,43 @@ impl Reader {
                 block_id,
             });
         }
-        0
+        buf.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use bytes::Bytes;
+
+    use super::*;
+    use crate::backend::backend::memory_backend;
+    use crate::handle::writer::Writer;
+    use crate::lru::LruPolicy;
+    use crate::mock_io::CacheKey;
+    use crate::CacheManager;
+
+    #[tokio::test]
+    async fn test_reader() {
+        let backend = Arc::new(memory_backend());
+        let manger = CacheManager::<CacheKey, LruPolicy<CacheKey>>::new(10);
+        let content = Bytes::from_static(&[b'1'; BLOCK_SIZE]);
+        let slice = BlockSlice::new(0, 0, content.len() as u64);
+
+        let writer = Writer::new(1, manger.clone(), backend.clone());
+        writer.write(&content, &[slice]).await;
+        writer.flush().await;
+
+        let reader = Reader::new(1, manger.clone(), backend);
+        let slice = BlockSlice::new(0, 0, BLOCK_SIZE as u64);
+        let mut buf = Vec::with_capacity(BLOCK_SIZE);
+        let size = reader.read(&mut buf, &[slice]).await;
+        assert_eq!(size, BLOCK_SIZE);
+        let memory_size = manger.lock().len();
+        assert_eq!(memory_size, 1);
+        manger.lock().evict();
+        let memory_size = manger.lock().len();
+        assert_eq!(memory_size, 0);
     }
 }

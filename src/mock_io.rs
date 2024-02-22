@@ -1,13 +1,14 @@
 use async_trait::async_trait;
-use bytes::{Bytes, BytesMut};
-use smallvec::SmallVec;
+
+use crate::handle::handle::OpenFlag;
 
 #[async_trait]
 pub trait MockIO {
-    // 可以换成 BytesMut
-    async fn read(&self, ino: u64, offset: u64, buf: BytesMut) -> u32;
-    // 可以换成Bytes
-    async fn write(&self, ino: u64, offset: u64, buf: Bytes) -> u32;
+    fn open(&self, ino: u64, flag: OpenFlag) -> u64;
+    async fn read(&self, ino: u64, fh: u64, offset: u64, len: usize) -> Vec<u8>;
+    async fn write(&self, ino: u64, fh: u64, offset: u64, buf: &Vec<u8>) -> u32;
+    async fn flush(&self, _ino: u64, fh: u64);
+    fn close(&self, fh: u64);
 }
 
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]

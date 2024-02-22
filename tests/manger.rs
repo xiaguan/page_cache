@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use page_cache::block::{Block, BLOCK_SIZE};
+use page_cache::block::BLOCK_SIZE;
 use page_cache::lru::LruPolicy;
 use page_cache::CacheManager;
 

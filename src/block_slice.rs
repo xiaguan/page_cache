@@ -28,7 +28,7 @@ impl BlockSlice {
     }
 }
 
-fn offset_to_slice(block_size: u64, offset: u64, len: u64) -> SmallVec<[BlockSlice; 2]> {
+pub fn offset_to_slice(block_size: u64, offset: u64, len: u64) -> SmallVec<[BlockSlice; 2]> {
     let mut slices = SmallVec::new();
     let mut current_offset = offset;
     let mut remaining_len = len;

@@ -9,7 +9,7 @@ use tracing::warn;
 pub mod backend;
 pub mod block;
 pub mod block_slice;
-pub mod guard;
+
 pub mod handle;
 pub mod lru;
 pub mod mock_io;
@@ -63,13 +63,13 @@ where
             println!("Successfully created a new block from free list");
             return Some(new_block);
         } else {
-            let evict_key = self.policy.evict()?;
-            let evict_result = self.map.remove(&evict_key);
-            if evict_result.is_none() {
-                // Print a warning message.
-                warn!("In memory cache manager is full and no evictable block found");
+            let evict_key = self.policy.evict();
+            if evict_key.is_none() {
+                warn!("The cache is full of non-evictable blocks");
+                return None;
             }
-            let evict_block = evict_result?;
+            let evict_key = evict_key?;
+            let evict_block = self.map.remove(&evict_key).unwrap();
             println!("Get a evict block");
             assert!(evict_block.read().pin_count() == 0);
             assert!(!evict_block.read().dirty());
@@ -99,5 +99,23 @@ where
         self.policy.access(key);
         block.write().pin();
         Some(block)
+    }
+
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    pub fn evict(&mut self) {
+        loop {
+            let key = self.policy.evict();
+            if let Some(key) = key {
+                let block = self.map.remove(&key).unwrap();
+                assert!(block.read().pin_count() == 0);
+                assert!(!block.read().dirty());
+                println!("Evict block");
+            } else {
+                break;
+            }
+        }
     }
 }

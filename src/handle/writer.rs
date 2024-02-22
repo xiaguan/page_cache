@@ -6,7 +6,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task::JoinHandle;
 
 use crate::backend::Backend;
-use crate::block::{format_path, Block};
+use crate::block::{format_path, Block, BLOCK_SIZE};
 use crate::block_slice::BlockSlice;
 use crate::lru::LruPolicy;
 use crate::mock_io::CacheKey;
@@ -18,7 +18,7 @@ pub struct Writer {
     cache: Arc<Mutex<CacheManager<CacheKey, LruPolicy<CacheKey>>>>,
     backend: Arc<Backend>,
     write_back_sender: Sender<Arc<Task>>,
-    write_back_handle: Option<JoinHandle<()>>,
+    write_back_handle: tokio::sync::Mutex<Option<JoinHandle<()>>>,
 }
 
 enum Task {
@@ -121,10 +121,10 @@ impl Writer {
             cache,
             backend,
             write_back_sender: tx,
-            write_back_handle: None,
+            write_back_handle: tokio::sync::Mutex::new(None),
         };
         let handle = tokio::spawn(write_back_work(rx));
-        writer.write_back_handle = Some(handle);
+        writer.write_back_handle = tokio::sync::Mutex::new(Some(handle));
         writer
     }
 
@@ -155,14 +155,18 @@ impl Writer {
             // There is a gap between the block is created and the content is read from the
             // backend. But according to the current design, concurrency
             // read/write is not supported.
-            let mut block = block.write();
-            let size = self.backend.read(&path, &mut block).await;
+            let mut buf = Vec::with_capacity(BLOCK_SIZE);
+            let size = self.backend.read(&path, &mut buf).await;
+            if size != 0 {
+                let mut block = block.write();
+                block.as_mut().copy_from_slice(&buf);
+            }
             println!("Read from backend, size: {}", size);
         }
         block
     }
 
-    pub async fn write(&self, buf: Bytes, slices: &[BlockSlice]) {
+    pub async fn write(&self, buf: &[u8], slices: &[BlockSlice]) {
         for slice in slices {
             let block_id = slice.block_id();
             let block = self.fetch_block(block_id).await;
@@ -186,29 +190,40 @@ impl Writer {
         }
     }
 
-    pub async fn flush(&mut self) {
+    pub async fn flush(&self) {
         self.write_back_sender
             .send(Arc::new(Task::Finish))
             .await
             .unwrap();
-        self.write_back_handle.take().unwrap().await.unwrap();
+        self.write_back_handle
+            .lock()
+            .await
+            .take()
+            .unwrap()
+            .await
+            .unwrap();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::backend::tmp_fs_backend;
+    use crate::backend::backend::memory_backend;
     use crate::block::BLOCK_SIZE;
 
     #[tokio::test]
     async fn test_writer() {
-        let backend = Arc::new(tmp_fs_backend());
+        let backend = Arc::new(memory_backend());
         let manger = CacheManager::<CacheKey, LruPolicy<CacheKey>>::new(10);
-        let mut writer = Writer::new(1, manger.clone(), backend);
+        let writer = Writer::new(1, manger.clone(), backend);
         let content = Bytes::from_static(&[b'1'; BLOCK_SIZE]);
         let slice = BlockSlice::new(0, 0, content.len() as u64);
-        writer.write(content, &[slice]).await;
+        writer.write(&content, &[slice]).await;
+        let memory_size = manger.lock().len();
+        assert_eq!(memory_size, 1);
         writer.flush().await;
+        manger.lock().evict();
+        let memory_size = manger.lock().len();
+        assert_eq!(memory_size, 0);
     }
 }
