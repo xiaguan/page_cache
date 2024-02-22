@@ -1,18 +1,11 @@
-use bytes::{Bytes, BytesMut};
-use parking_lot::RwLock;
-
 pub const BLOCK_SIZE: usize = 512 * 1024;
 
-enum BlockStatus {
-    Dirty(String),
-    Clean,
-    Error(String),
-}
-
+#[derive(Debug)]
 pub struct Block {
     data: Vec<u8>,
     pin_count: u32,
     dirty: bool,
+    version: usize,
 }
 
 impl Block {
@@ -22,7 +15,16 @@ impl Block {
             data,
             pin_count: 0,
             dirty: false,
+            version: 0,
         }
+    }
+
+    pub fn version(&self) -> usize {
+        self.version
+    }
+
+    pub fn inc_version(&mut self) {
+        self.version += 1;
     }
 
     pub fn pin_count(&self) -> u32 {
@@ -38,11 +40,13 @@ impl Block {
     }
 
     pub fn pin(&mut self) {
+        println!("Pin block");
         self.pin_count += 1;
     }
 
     pub fn unpin(&mut self) {
-        assert!(self.pin_count > 0);
+        println!("Unpin block");
+        // assert!(self.pin_count > 0);
         self.pin_count -= 1;
     }
 
@@ -52,6 +56,9 @@ impl Block {
     }
 }
 
+pub fn format_path(block_id: u64, ino: u64) -> String {
+    format!("{}-{}", ino, block_id)
+}
 impl std::ops::Deref for Block {
     type Target = [u8];
 

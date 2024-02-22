@@ -6,7 +6,7 @@ use crate::backend::Backend;
 use crate::lru::LruPolicy;
 use crate::CacheManager;
 
-enum HandleTyep {
+enum OpenFlag {
     Read,
     Write,
     ReadAndWrite,
@@ -14,5 +14,5 @@ enum HandleTyep {
 
 pub struct Storage {
     cache: Arc<Mutex<CacheManager<u128, LruPolicy<u128>>>>,
-    backend: Backend,
+    backend: Arc<Backend>,
 }

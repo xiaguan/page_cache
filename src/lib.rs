@@ -1,15 +1,14 @@
 use std::collections::VecDeque;
-use std::sync::mpsc::Sender;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
 use block::{Block, BLOCK_SIZE};
-use guard::{ReadGuard, WriteGuard};
 use hashbrown::HashMap;
 use parking_lot::{Mutex, RwLock};
 use tracing::warn;
 
 pub mod backend;
 pub mod block;
+pub mod block_slice;
 pub mod guard;
 pub mod handle;
 pub mod lru;
@@ -17,6 +16,7 @@ pub mod mock_io;
 pub mod policy;
 pub mod storage;
 
+#[derive(Debug)]
 pub struct CacheManager<K, P>
 where
     K: Eq + std::hash::Hash + Clone,
@@ -26,6 +26,7 @@ where
     map: HashMap<K, Arc<RwLock<Block>>>,
     free_list: VecDeque<Vec<u8>>,
 }
+
 impl<K, P> CacheManager<K, P>
 where
     K: Eq + std::hash::Hash + Clone,
