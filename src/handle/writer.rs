@@ -19,10 +19,12 @@ pub struct Writer {
     backend: Arc<Backend>,
     write_back_sender: Sender<Arc<Task>>,
     write_back_handle: tokio::sync::Mutex<Option<JoinHandle<()>>>,
+    access_keys: Mutex<Vec<CacheKey>>,
 }
 
 enum Task {
     Pending(Arc<WriteTask>),
+    Flush,
     Finish,
 }
 
@@ -92,6 +94,11 @@ async fn write_back_work(mut write_back_receiver: Receiver<Arc<Task>>) {
                         println!("Receive a pending task");
                         tasks.push(task.clone());
                     }
+                    Task::Flush => {
+                        println!("Receive a flush task");
+                        write_blocks(&tasks).await;
+                        tasks.clear();
+                    }
                     Task::Finish => {
                         println!("Receive a finish task");
                         write_blocks(&tasks).await;
@@ -122,10 +129,20 @@ impl Writer {
             backend,
             write_back_sender: tx,
             write_back_handle: tokio::sync::Mutex::new(None),
+            access_keys: Mutex::new(Vec::new()),
         };
         let handle = tokio::spawn(write_back_work(rx));
         writer.write_back_handle = tokio::sync::Mutex::new(Some(handle));
         writer
+    }
+
+    fn access(&self, block_id: u64) {
+        let key = CacheKey {
+            ino: self.ino,
+            block_id,
+        };
+        let mut access_keys = self.access_keys.lock();
+        access_keys.push(key);
     }
 
     pub async fn fetch_block(&self, block_id: u64) -> Arc<RwLock<Block>> {
@@ -169,6 +186,7 @@ impl Writer {
     pub async fn write(&self, buf: &[u8], slices: &[BlockSlice]) {
         for slice in slices {
             let block_id = slice.block_id();
+            self.access(block_id);
             let block = self.fetch_block(block_id).await;
             {
                 let mut block = block.write();
@@ -192,9 +210,17 @@ impl Writer {
 
     pub async fn flush(&self) {
         self.write_back_sender
+            .send(Arc::new(Task::Flush))
+            .await
+            .unwrap();
+    }
+
+    pub async fn close(&self) {
+        self.write_back_sender
             .send(Arc::new(Task::Finish))
             .await
             .unwrap();
+        self.flush().await;
         self.write_back_handle
             .lock()
             .await
@@ -202,6 +228,10 @@ impl Writer {
             .unwrap()
             .await
             .unwrap();
+        let keys = self.access_keys.lock();
+        for key in keys.iter() {
+            self.cache.lock().remove(key);
+        }
     }
 }
 
@@ -221,8 +251,7 @@ mod tests {
         writer.write(&content, &[slice]).await;
         let memory_size = manger.lock().len();
         assert_eq!(memory_size, 1);
-        writer.flush().await;
-        manger.lock().evict();
+        writer.close().await;
         let memory_size = manger.lock().len();
         assert_eq!(memory_size, 0);
     }

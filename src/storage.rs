@@ -44,7 +44,14 @@ impl MockIO for Storage {
         handle.flush().await;
     }
 
-    fn close(&self, fh: u64) {
+    async fn close(&self, fh: u64) {
+        let handle = self.handles.get_handle(fh).unwrap();
+        handle.close().await;
+        let size = {
+            let cache = self.cache.lock();
+            cache.len()
+        };
+        println!("Cache size: {}", size);
         self.handles.remove_handle(fh);
     }
 }

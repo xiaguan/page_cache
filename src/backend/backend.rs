@@ -14,12 +14,14 @@ impl Backend {
     }
 
     pub async fn read(&self, path: &str, buf: &mut [u8]) -> usize {
+        println!("backend::read path: {}", path);
         let mut reader = self.operator.reader(&path).await.unwrap();
         let mut read_size = 0;
         loop {
             let result = reader.read(buf).await;
             match result {
                 Ok(size) => {
+                    println!("Read size: {}", size);
                     if size == 0 {
                         break;
                     }
@@ -27,18 +29,22 @@ impl Backend {
                 }
                 Err(e) => {
                     // If not found just return 0.
+                    println!("Read error: {:?}", e);
                     if e.kind() == ErrorKind::NotFound {
                         break;
                     }
                 }
             }
         }
+        println!("Read size: {}", read_size);
         read_size
     }
 
     pub async fn store(&self, path: &str, buf: &[u8]) {
+        println!("backend::store path: {}", path);
         let mut writer = self.operator.writer(&path).await.unwrap();
         writer.write_all(buf).await.unwrap();
+        writer.flush().await.unwrap();
         writer.close().await.unwrap();
     }
 

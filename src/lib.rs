@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use block::{Block, BLOCK_SIZE};
@@ -24,28 +25,30 @@ where
 {
     policy: P,
     map: HashMap<K, Arc<RwLock<Block>>>,
-    free_list: VecDeque<Vec<u8>>,
+    free_list: VecDeque<Arc<RwLock<Block>>>,
 }
 
 impl<K, P> CacheManager<K, P>
 where
-    K: Eq + std::hash::Hash + Clone,
+    K: Eq + std::hash::Hash + Clone + Debug,
     P: policy::EvictPolicy<K>,
 {
     pub fn new(capacity: usize) -> Arc<Mutex<Self>> {
+        let mut free_list = VecDeque::with_capacity(capacity);
+        for _ in 0..capacity {
+            let block = Arc::new(RwLock::new(Block::new(vec![0; BLOCK_SIZE])));
+            free_list.push_back(block);
+        }
         Arc::new(Mutex::new(CacheManager {
             policy: P::new(capacity),
             map: HashMap::with_capacity(capacity),
-            free_list: VecDeque::from(vec![vec![0; BLOCK_SIZE]; capacity]),
+            free_list,
         }))
     }
 
     fn get_free_block(&mut self, key: &K) -> Option<Arc<RwLock<Block>>> {
         // If the queue is empty, `pop_front` returns `None`.
-        let new_block = self
-            .free_list
-            .pop_front()
-            .map(|data| Arc::new(RwLock::new(Block::new(data))))?;
+        let new_block = self.free_list.pop_front()?;
         // Access the policy to update the internal state.
         self.policy.access(key);
         self.map.insert(key.clone(), new_block.clone());
@@ -116,6 +119,25 @@ where
             } else {
                 break;
             }
+        }
+    }
+
+    pub fn remove(&mut self, key: &K) -> bool {
+        if let Some(block_ref) = self.map.remove(key) {
+            let mut block = block_ref.write();
+            if block.pin_count() == 0 {
+                assert!(!block.dirty());
+                block.clear();
+                println!("Remove block done {:?}", key);
+                self.free_list.push_back(block_ref.clone());
+                self.policy.remove(key);
+                return true;
+            } else {
+                println!("The block is pinned, can't remove it");
+                return false;
+            }
+        } else {
+            return false;
         }
     }
 }

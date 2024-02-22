@@ -8,7 +8,7 @@ pub trait MockIO {
     async fn read(&self, ino: u64, fh: u64, offset: u64, len: usize) -> Vec<u8>;
     async fn write(&self, ino: u64, fh: u64, offset: u64, buf: &Vec<u8>) -> u32;
     async fn flush(&self, _ino: u64, fh: u64);
-    fn close(&self, fh: u64);
+    async fn close(&self, fh: u64);
 }
 
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]

@@ -99,6 +99,26 @@ impl FileHandle {
         };
         writer.flush().await;
     }
+
+    async fn close_writer(&self) {
+        let writer = {
+            let handle = self.inner.read();
+            match &handle.writer {
+                Some(writer) => Some(writer.clone()),
+                None => None,
+            }
+        };
+        if let Some(writer) = writer {
+            writer.close().await;
+        }
+    }
+
+    pub async fn close(&self) {
+        self.close_writer().await;
+        if let Some(reader) = self.inner.read().reader.as_ref() {
+            reader.close();
+        }
+    }
 }
 const HANDLE_SHARD_NUM: usize = 100;
 
