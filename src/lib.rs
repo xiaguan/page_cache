@@ -50,8 +50,8 @@ where
         // If the queue is empty, `pop_front` returns `None`.
         let new_block = self.free_list.pop_front()?;
         // Access the policy to update the internal state.
-        self.policy.access(key);
         self.map.insert(key.clone(), new_block.clone());
+        self.policy.access(key);
         new_block.write().pin();
         Some(new_block)
     }
@@ -123,21 +123,30 @@ where
     }
 
     pub fn remove(&mut self, key: &K) -> bool {
-        if let Some(block_ref) = self.map.remove(key) {
-            let mut block = block_ref.write();
-            if block.pin_count() == 0 {
-                assert!(!block.dirty());
-                block.clear();
-                println!("Remove block done {:?}", key);
-                self.free_list.push_back(block_ref.clone());
-                self.policy.remove(key);
-                return true;
-            } else {
-                println!("The block is pinned, can't remove it");
-                return false;
-            }
-        } else {
+        // 尝试从map中移除key，并立即处理None情况
+        let block_ref: Arc<RwLock<Block>> = match self.map.remove(key) {
+            Some(block) => block,
+            None => return false,
+        };
+
+        // 获取写锁
+        let mut block = block_ref.write();
+
+        // 检查是否满足移除条件
+        if block.pin_count() != 0 {
+            // 如果不满足，将block_ref重新插入map，并返回失败
+            self.map.insert(key.clone(), block_ref.clone());
             return false;
         }
+
+        // 确保block不是dirty的
+        assert!(!block.dirty());
+
+        // 清理block并执行后续操作
+        block.clear();
+        self.free_list.push_back(block_ref.clone());
+        self.policy.remove(key);
+
+        true // 成功移除
     }
 }
