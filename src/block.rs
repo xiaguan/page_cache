@@ -40,19 +40,18 @@ impl Block {
     }
 
     pub fn pin(&mut self) {
-        println!("Pin block");
         self.pin_count += 1;
     }
 
     pub fn unpin(&mut self) {
-        println!("Unpin block");
-        // assert!(self.pin_count > 0);
+        assert!(self.pin_count > 0);
         self.pin_count -= 1;
     }
 
     pub fn clear(&mut self) {
         self.dirty = false;
         self.pin_count = 0;
+        self.version = 0;
     }
 }
 
