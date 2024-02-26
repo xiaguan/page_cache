@@ -5,7 +5,7 @@ use parking_lot::{Mutex, RwLock};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task::JoinHandle;
 
-use crate::backend::Backend;
+use crate::backend::{Backend, BackendImpl};
 use crate::block::{format_path, Block, BLOCK_SIZE};
 use crate::block_slice::BlockSlice;
 use crate::lru::LruPolicy;
@@ -16,7 +16,7 @@ use crate::CacheManager;
 pub struct Writer {
     ino: u64,
     cache: Arc<Mutex<CacheManager<CacheKey, LruPolicy<CacheKey>>>>,
-    backend: Arc<Backend>,
+    backend: Arc<dyn Backend>,
     write_back_sender: Sender<Arc<Task>>,
     write_back_handle: tokio::sync::Mutex<Option<JoinHandle<()>>>,
     access_keys: Mutex<Vec<CacheKey>>,
@@ -30,7 +30,7 @@ enum Task {
 
 struct WriteTask {
     cache: Arc<Mutex<CacheManager<CacheKey, LruPolicy<CacheKey>>>>,
-    backend: Arc<Backend>,
+    backend: Arc<dyn Backend>,
     ino: u64,
     block_id: u64,
     block: Arc<RwLock<Block>>,
@@ -39,7 +39,6 @@ struct WriteTask {
 async fn write_back_block(task: Arc<WriteTask>) {
     let path = format!("{}-{}", task.ino, task.block_id);
     loop {
-        println!("Write back block");
         let (content, version) = {
             let block = task.block.read();
             let content = Bytes::copy_from_slice(block.as_ref());
@@ -47,7 +46,7 @@ async fn write_back_block(task: Arc<WriteTask>) {
             (content, version)
         };
 
-        task.backend.store(&path, &content).await;
+        task.backend.store(&path, &content).await.unwrap();
         {
             let mut block = task.block.write();
             // Check version
@@ -91,8 +90,11 @@ async fn write_back_work(mut write_back_receiver: Receiver<Arc<Task>>) {
             Some(task) = write_back_receiver.recv() => {
                 match task.as_ref() {
                     Task::Pending(task) => {
-                        println!("Receive a pending task");
                         tasks.push(task.clone());
+                        if tasks.len() >= 10 {
+                            write_blocks(&tasks).await;
+                            tasks.clear();
+                        }
                     }
                     Task::Flush => {
                         println!("Receive a flush task");
@@ -120,7 +122,7 @@ impl Writer {
     pub fn new(
         ino: u64,
         cache: Arc<Mutex<CacheManager<CacheKey, LruPolicy<CacheKey>>>>,
-        backend: Arc<Backend>,
+        backend: Arc<dyn Backend>,
     ) -> Self {
         let (tx, rx) = tokio::sync::mpsc::channel(100);
         let mut writer = Writer {
@@ -155,12 +157,8 @@ impl Writer {
             let mut cache = self.cache.lock();
             let block = cache.fetch(&key);
             match block {
-                Some(block) => {
-                    println!("The block is already cached");
-                    (block, false)
-                }
+                Some(block) => (block, false),
                 None => {
-                    println!("The block is not cached , create a new one");
                     let new_block = cache.new_block(&key).unwrap();
                     (new_block, true)
                 }
@@ -173,12 +171,11 @@ impl Writer {
             // backend. But according to the current design, concurrency
             // read/write is not supported.
             let mut buf = Vec::with_capacity(BLOCK_SIZE);
-            let size = self.backend.read(&path, &mut buf).await;
+            let size = self.backend.read(&path, &mut buf).await.unwrap();
             if size != 0 {
                 let mut block = block.write();
                 block.as_mut().copy_from_slice(&buf);
             }
-            println!("Read from backend, size: {}", size);
         }
         block
     }

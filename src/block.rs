@@ -1,4 +1,4 @@
-pub const BLOCK_SIZE: usize = 512 * 1024;
+pub const BLOCK_SIZE: usize = 4 * 1024 * 1024;
 
 #[derive(Debug)]
 pub struct Block {

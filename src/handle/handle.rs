@@ -6,9 +6,10 @@ use parking_lot::{Mutex, RwLock};
 
 use super::reader::Reader;
 use super::writer::Writer;
-use crate::backend::Backend;
+use crate::backend::{Backend, BackendImpl};
 use crate::block::BLOCK_SIZE;
 use crate::block_slice::offset_to_slice;
+use crate::error::StorageResult;
 use crate::lru::LruPolicy;
 use crate::mock_io::CacheKey;
 use crate::CacheManager;
@@ -19,8 +20,6 @@ pub struct FileHandleInner {
     reader: Option<Arc<Reader>>,
     writer: Option<Arc<Writer>>,
 }
-
-unsafe impl Send for FileHandleInner {}
 
 pub enum OpenFlag {
     Read,
@@ -33,7 +32,7 @@ impl FileHandleInner {
         fh: u64,
         ino: u64,
         cache: Arc<Mutex<CacheManager<CacheKey, LruPolicy<CacheKey>>>>,
-        backend: Arc<Backend>,
+        backend: Arc<dyn Backend>,
         flag: OpenFlag,
     ) -> Self {
         let reader = match flag {
@@ -61,7 +60,7 @@ impl FileHandle {
         fh: u64,
         ino: u64,
         cache: Arc<Mutex<CacheManager<CacheKey, LruPolicy<CacheKey>>>>,
-        backend: Arc<Backend>,
+        backend: Arc<dyn Backend>,
         flag: OpenFlag,
     ) -> Self {
         let inner = FileHandleInner::new(fh, ino, cache, backend, flag);
@@ -73,15 +72,15 @@ impl FileHandle {
         self.inner.read().fh
     }
 
-    pub async fn read(&self, offset: u64, len: u64) -> Vec<u8> {
+    pub async fn read(&self, offset: u64, len: u64) -> StorageResult<Vec<u8>> {
         let reader = {
             let handle = self.inner.read();
             handle.reader.as_ref().unwrap().clone()
         };
         let slices = offset_to_slice(BLOCK_SIZE as u64, offset, len);
         let mut buf = Vec::with_capacity(len as usize);
-        reader.read(&mut buf, &slices).await;
-        buf
+        reader.read(&mut buf, &slices).await?;
+        Ok(buf)
     }
 
     pub async fn write(&self, offset: u64, buf: &Vec<u8>) {
@@ -193,7 +192,7 @@ mod tests {
         handles.add_handle(file_handle.clone());
         let buf = vec![b'1', b'2', b'3', b'4'];
         file_handle.write(0, &buf).await;
-        let read_buf = file_handle.read(0, 4).await;
+        let read_buf = file_handle.read(0, 4).await.unwrap();
         assert_eq!(read_buf, buf);
         file_handle.flush().await;
     }

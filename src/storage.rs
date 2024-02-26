@@ -4,7 +4,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use parking_lot::Mutex;
 
-use crate::backend::Backend;
+use crate::backend::{Backend, BackendImpl};
+use crate::error::StorageResult;
 use crate::handle::handle::{FileHandle, Handles, OpenFlag};
 use crate::lru::LruPolicy;
 use crate::mock_io::{CacheKey, MockIO};
@@ -14,7 +15,7 @@ pub struct Storage {
     handles: Arc<Handles>,
     cur_fh: AtomicU64,
     cache: Arc<Mutex<CacheManager<CacheKey, LruPolicy<CacheKey>>>>,
-    backend: Arc<Backend>,
+    backend: Arc<dyn Backend>,
 }
 
 #[async_trait]
@@ -28,15 +29,15 @@ impl MockIO for Storage {
         new_fh
     }
 
-    async fn read(&self, _ino: u64, fh: u64, offset: u64, len: usize) -> Vec<u8> {
+    async fn read(&self, _ino: u64, fh: u64, offset: u64, len: usize) -> StorageResult<Vec<u8>> {
         let handle = self.handles.get_handle(fh).unwrap();
         handle.read(offset, len as u64).await
     }
 
-    async fn write(&self, _ino: u64, fh: u64, offset: u64, buf: &Vec<u8>) -> u32 {
+    async fn write(&self, _ino: u64, fh: u64, offset: u64, buf: &Vec<u8>) -> StorageResult<()> {
         let handle = self.handles.get_handle(fh).unwrap();
         handle.write(offset, buf).await;
-        0
+        Ok(())
     }
 
     async fn flush(&self, _ino: u64, fh: u64) {
@@ -59,7 +60,7 @@ impl MockIO for Storage {
 impl Storage {
     pub fn new(
         cache: Arc<Mutex<CacheManager<CacheKey, LruPolicy<CacheKey>>>>,
-        backend: Arc<Backend>,
+        backend: Arc<dyn Backend>,
     ) -> Self {
         Storage {
             handles: Arc::new(Handles::new()),

@@ -1,12 +1,13 @@
 use async_trait::async_trait;
 
+use crate::error::StorageResult;
 use crate::handle::handle::OpenFlag;
 
 #[async_trait]
 pub trait MockIO {
     fn open(&self, ino: u64, flag: OpenFlag) -> u64;
-    async fn read(&self, ino: u64, fh: u64, offset: u64, len: usize) -> Vec<u8>;
-    async fn write(&self, ino: u64, fh: u64, offset: u64, buf: &Vec<u8>) -> u32;
+    async fn read(&self, ino: u64, fh: u64, offset: u64, len: usize) -> StorageResult<Vec<u8>>;
+    async fn write(&self, ino: u64, fh: u64, offset: u64, buf: &Vec<u8>) -> StorageResult<()>;
     async fn flush(&self, _ino: u64, fh: u64);
     async fn close(&self, fh: u64);
 }

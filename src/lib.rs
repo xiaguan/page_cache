@@ -11,6 +11,7 @@ pub mod backend;
 pub mod block;
 pub mod block_slice;
 
+pub mod error;
 pub mod handle;
 pub mod lru;
 pub mod mock_io;
@@ -63,7 +64,6 @@ where
         // 2. The free list is empty, evict a block from the cache.
         // 3. If the cache is full of non-evictable blocks, return None.
         if let Some(new_block) = self.get_free_block(key) {
-            println!("Successfully created a new block from free list");
             return Some(new_block);
         } else {
             let evict_key = self.policy.evict();
@@ -73,13 +73,11 @@ where
             }
             let evict_key = evict_key?;
             let evict_block = self.map.remove(&evict_key).unwrap();
-            println!("Get a evict block");
             assert!(evict_block.read().pin_count() == 0);
             assert!(!evict_block.read().dirty());
             self.map.insert(key.clone(), evict_block.clone());
             self.policy.access(key);
             evict_block.write().pin();
-            println!("Successfully created a new block by evicting a block from the cache");
             Some(evict_block)
         }
     }
@@ -115,7 +113,6 @@ where
                 let block = self.map.remove(&key).unwrap();
                 assert!(block.read().pin_count() == 0);
                 assert!(!block.read().dirty());
-                println!("Evict block");
             } else {
                 break;
             }

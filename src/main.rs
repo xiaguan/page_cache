@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use page_cache::backend::backend::memory_backend;
+use page_cache::backend::memory_backend::MemoryBackend;
 use page_cache::block::BLOCK_SIZE;
 use page_cache::handle::handle::OpenFlag;
 use page_cache::lru::LruPolicy;
@@ -8,44 +9,68 @@ use page_cache::mock_io::{CacheKey, MockIO};
 use page_cache::storage::Storage;
 use page_cache::CacheManager;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let backend = Arc::new(memory_backend());
-    let manger = CacheManager::<CacheKey, LruPolicy<CacheKey>>::new(10000);
+async fn seq_read(storage: Arc<Storage>, ino: u64) {
+    let flag = OpenFlag::Read;
+    let fh = storage.open(ino, flag);
+    for i in 0..256 {
+        let random_block_id = rand::random::<u64>() % 256;
+        let buf = storage
+            .read(10, fh, random_block_id * BLOCK_SIZE as u64, BLOCK_SIZE)
+            .await
+            .unwrap();
+        assert_eq!(buf.len(), BLOCK_SIZE);
+    }
+}
+
+async fn concurrency_read() {
+    let backend = Arc::new(MemoryBackend::new());
+    let manger = CacheManager::<CacheKey, LruPolicy<CacheKey>>::new(300);
     let storage = Arc::new(Storage::new(manger, backend));
+    // First write
     let content = vec![b'1'; BLOCK_SIZE];
     let flag = OpenFlag::Write;
-    let start = std::time::Instant::now();
-    let fh = storage.open(10, flag);
-    for i in 0..256 {
-        storage.write(10, fh, i * BLOCK_SIZE as u64, &content).await;
+    {
+        let start = std::time::Instant::now();
+        let fh = storage.open(10, flag);
+        for i in 0..256 {
+            storage
+                .write(10, fh, i * BLOCK_SIZE as u64, &content)
+                .await
+                .unwrap();
+        }
+        storage.flush(10, fh).await;
+        storage.close(fh).await;
+        let end = std::time::Instant::now();
+        println!("write Time: {:?}", end - start);
     }
-    storage.flush(10, fh).await;
-    let end = std::time::Instant::now();
-    storage.close(fh).await;
-    println!("write Time: {:?}", end - start);
-
-    let flag = OpenFlag::Read;
-    let fh = storage.open(10, flag);
     // Warm up
-    for i in 0..256 {
-        let buf = storage
-            .read(10, fh, i * BLOCK_SIZE as u64, BLOCK_SIZE)
-            .await;
-        assert_eq!(buf.len(), BLOCK_SIZE);
+    for _ in 0..10 {
+        seq_read(storage.clone(), 10).await;
     }
-    println!("Warm up finish");
-    let start = std::time::Instant::now();
-
-    for i in 0..256 {
-        let buf = storage
-            .read(10, fh, i * BLOCK_SIZE as u64, BLOCK_SIZE)
-            .await;
-        assert_eq!(buf.len(), BLOCK_SIZE);
+    // Concurrency read ,thread num : 1,2,4,8
+    for i in 0..5 {
+        let mut tasks = vec![];
+        let start = tokio::time::Instant::now();
+        for _ in 0..2_usize.pow(i) {
+            let storage = storage.clone();
+            tasks.push(tokio::spawn(async move {
+                seq_read(storage, 10).await;
+            }));
+        }
+        for task in tasks {
+            task.await.unwrap();
+        }
+        let end = tokio::time::Instant::now();
+        println!(
+            "thread num : {}, read Time: {:?}",
+            2_usize.pow(i),
+            end - start
+        );
     }
-    let end = std::time::Instant::now();
-    storage.close(fh).await;
-    println!("read Time: {:?}", end - start);
+}
 
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    concurrency_read().await;
     Ok(())
 }

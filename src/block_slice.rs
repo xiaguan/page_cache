@@ -1,5 +1,6 @@
 use smallvec::SmallVec;
 
+#[derive(Debug, Clone)]
 pub struct BlockSlice {
     block_id: u64,
     offset: u64,
