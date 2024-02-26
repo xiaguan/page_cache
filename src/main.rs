@@ -48,7 +48,7 @@ async fn concurrency_read() {
         seq_read(storage.clone(), 10).await;
     }
     // Concurrency read ,thread num : 1,2,4,8
-    for i in 0..5 {
+    for i in 0..6 {
         let mut tasks = vec![];
         let start = tokio::time::Instant::now();
         for _ in 0..2_usize.pow(i) {
@@ -61,10 +61,13 @@ async fn concurrency_read() {
             task.await.unwrap();
         }
         let end = tokio::time::Instant::now();
+        // throuput = 1GB/ time * thread num
+        let throuput = 1.0 / (end - start).as_secs_f64() * 2_usize.pow(i) as f64;
         println!(
-            "thread num : {}, read Time: {:?}",
+            "thread num : {}, read Time: {:?} thoughput: {} GB/s",
             2_usize.pow(i),
-            end - start
+            end - start,
+            throuput
         );
     }
 }
