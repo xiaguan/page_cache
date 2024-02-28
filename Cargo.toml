@@ -21,10 +21,12 @@ nix = "0.23.1"
 opendal = "0.45.0"
 parking_lot = "0.12.1"
 rand = "0.8.5"
+rand_distr = "0.4.3"
 smallvec = "1.13.1"
 thiserror = "1.0.57"
 tokio = { version = "1.36.0", features = ["full"] }
 tracing = "0.1.40"
+zipf = "7.0.1"
 
 [profile.release]
 debug = true

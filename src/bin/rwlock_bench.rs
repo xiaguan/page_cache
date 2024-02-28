@@ -11,7 +11,13 @@ fn bench_parking_lot() {
         let mut handles = vec![];
 
         let start = Instant::now();
-
+        let write_lock = lock.clone();
+        // Start a write lock
+        thread::spawn(move || {
+            for _ in 0..count * ITERATIONS {
+                let _write = write_lock.write();
+            }
+        });
         for _ in 0..count {
             let lock_clone = lock.clone();
             let handle = thread::spawn(move || {
@@ -40,7 +46,13 @@ fn bench_std_rwlock() {
         let mut handles = vec![];
 
         let start = Instant::now();
-
+        let write_lock = lock.clone();
+        // Start a write lock
+        thread::spawn(move || {
+            for _ in 0..count * ITERATIONS {
+                let _write = write_lock.write();
+            }
+        });
         for _ in 0..count {
             let lock_clone = lock.clone();
             let handle = thread::spawn(move || {
@@ -98,7 +110,13 @@ fn bench_crossbeam_shared_lock() {
         let mut handles = vec![];
 
         let start = Instant::now();
-
+        let write_lock = lock.clone();
+        // Start a write lock
+        thread::spawn(move || {
+            for _ in 0..count * ITERATIONS {
+                let _write = write_lock.write();
+            }
+        });
         for _ in 0..count {
             let lock_clone = lock.clone();
             let handle = thread::spawn(move || {

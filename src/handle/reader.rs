@@ -3,7 +3,7 @@ use std::sync::Arc;
 use hashbrown::HashSet;
 use parking_lot::{Mutex, RwLock};
 
-use crate::backend::{Backend, BackendImpl};
+use crate::backend::Backend;
 use crate::block::{format_path, Block, BLOCK_SIZE};
 use crate::block_slice::BlockSlice;
 use crate::error::{StorageError, StorageResult};
@@ -93,11 +93,11 @@ impl Reader {
             {
                 // Copy the data from the block to the buffer.
                 let block = block.read();
+                assert!(block.pin_count() >= 1);
                 let offset = slice.offset() as usize;
                 let size = slice.size() as usize;
                 buf.extend_from_slice(&block[offset..offset + size]);
             }
-            // Unpin the block
             self.cache.lock().unpin(&CacheKey {
                 ino: self.ino,
                 block_id,

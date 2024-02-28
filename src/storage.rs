@@ -4,7 +4,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use parking_lot::Mutex;
 
-use crate::backend::{Backend, BackendImpl};
+use crate::backend::Backend;
 use crate::error::StorageResult;
 use crate::handle::handle::{FileHandle, Handles, OpenFlag};
 use crate::lru::LruPolicy;
@@ -48,11 +48,6 @@ impl MockIO for Storage {
     async fn close(&self, fh: u64) {
         let handle = self.handles.get_handle(fh).unwrap();
         handle.close().await;
-        let size = {
-            let cache = self.cache.lock();
-            cache.len()
-        };
-        println!("Cache size: {}", size);
         self.handles.remove_handle(fh);
     }
 }
@@ -68,5 +63,9 @@ impl Storage {
             cache,
             backend,
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.cache.lock().len()
     }
 }

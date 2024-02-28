@@ -9,11 +9,16 @@ use crate::error::StorageResult;
 #[derive(Debug, Clone)]
 pub struct MemoryBackend {
     map: Arc<DashMap<String, Vec<u8>>>,
+    // mock latency : ms
+    latency: u64,
 }
 
 #[async_trait]
 impl Backend for MemoryBackend {
     async fn read(&self, path: &str, buf: &mut [u8]) -> StorageResult<usize> {
+        // mock latency
+        tokio::time::sleep(tokio::time::Duration::from_millis(self.latency)).await;
+
         let data = self.map.get(path);
         if data.is_none() {
             return Ok(0);
@@ -25,20 +30,25 @@ impl Backend for MemoryBackend {
     }
 
     async fn store(&self, path: &str, buf: &[u8]) -> StorageResult<()> {
+        // mock latency
+        tokio::time::sleep(tokio::time::Duration::from_millis(self.latency)).await;
         self.map.insert(path.to_owned(), buf.to_vec());
         Ok(())
     }
 
     async fn remove(&self, path: &str) -> StorageResult<()> {
+        // mock latency
+        tokio::time::sleep(tokio::time::Duration::from_millis(self.latency)).await;
         self.map.remove(path);
         Ok(())
     }
 }
 
 impl MemoryBackend {
-    pub fn new() -> Self {
+    pub fn new(latency: u64) -> Self {
         MemoryBackend {
             map: Arc::new(DashMap::new()),
+            latency,
         }
     }
 }

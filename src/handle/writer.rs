@@ -5,7 +5,7 @@ use parking_lot::{Mutex, RwLock};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task::JoinHandle;
 
-use crate::backend::{Backend, BackendImpl};
+use crate::backend::Backend;
 use crate::block::{format_path, Block, BLOCK_SIZE};
 use crate::block_slice::BlockSlice;
 use crate::lru::LruPolicy;
@@ -83,7 +83,7 @@ async fn write_blocks(tasks: &Vec<Arc<WriteTask>>) {
 
 async fn write_back_work(mut write_back_receiver: Receiver<Arc<Task>>) {
     //  Create a timer to flush the cache every 200ms.
-    let mut interval = tokio::time::interval(std::time::Duration::from_millis(200));
+    let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
     let mut tasks = Vec::new();
     loop {
         tokio::select! {
@@ -97,12 +97,10 @@ async fn write_back_work(mut write_back_receiver: Receiver<Arc<Task>>) {
                         }
                     }
                     Task::Flush => {
-                        println!("Receive a flush task");
                         write_blocks(&tasks).await;
                         tasks.clear();
                     }
                     Task::Finish => {
-                        println!("Receive a finish task");
                         write_blocks(&tasks).await;
                         tasks.clear();
                         return;
@@ -110,7 +108,6 @@ async fn write_back_work(mut write_back_receiver: Receiver<Arc<Task>>) {
                 }
             }
             _ = interval.tick() => {
-                println!("Interval expired");
                 write_blocks(&tasks).await;
                 tasks.clear();
             }

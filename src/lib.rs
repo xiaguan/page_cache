@@ -63,6 +63,15 @@ where
         // 1. Get a free block from the free list.
         // 2. The free list is empty, evict a block from the cache.
         // 3. If the cache is full of non-evictable blocks, return None.
+
+        // Check if the key is already exist
+        if self.map.contains_key(key) {
+            // access, then pin,return
+            self.policy.access(key);
+            let block = self.map.get(key).unwrap().clone();
+            block.write().pin();
+            return Some(block);
+        }
         if let Some(new_block) = self.get_free_block(key) {
             return Some(new_block);
         } else {
@@ -98,7 +107,11 @@ where
     pub fn fetch(&self, key: &K) -> Option<Arc<RwLock<Block>>> {
         let block = self.map.get(key)?.clone();
         self.policy.access(key);
-        block.write().pin();
+        {
+            let mut block = block.write();
+            block.pin();
+            assert!(block.pin_count() >= 1);
+        }
         Some(block)
     }
 

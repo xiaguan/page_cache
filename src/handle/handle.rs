@@ -6,7 +6,7 @@ use parking_lot::{Mutex, RwLock};
 
 use super::reader::Reader;
 use super::writer::Writer;
-use crate::backend::{Backend, BackendImpl};
+use crate::backend::Backend;
 use crate::block::BLOCK_SIZE;
 use crate::block_slice::offset_to_slice;
 use crate::error::StorageResult;
