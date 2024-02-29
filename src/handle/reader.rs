@@ -57,26 +57,19 @@ impl Reader {
             ino: self.ino,
             block_id,
         };
-        let new_block = self.cache.lock().new_block(&key);
-        match new_block {
-            Some(block) => {
-                let content = {
-                    let mut buf = vec![0; BLOCK_SIZE];
-                    self.backend
-                        .read(&format_path(block_id, self.ino), &mut buf)
-                        .await
-                        .map_err(|e| {
-                            self.cache.lock().unpin(&key);
-                            e
-                        })?;
-                    buf
-                };
-                {
-                    let mut block = block.write();
-                    block.copy_from_slice(&content);
-                }
-                Ok(block)
-            }
+        let content = {
+            let mut buf = vec![0; BLOCK_SIZE];
+            self.backend
+                .read(&format_path(block_id, self.ino), &mut buf)
+                .await
+                .map_err(|e| {
+                    self.cache.lock().unpin(&key);
+                    e
+                })?;
+            buf
+        };
+        match self.cache.lock().new_block(&key, &content) {
+            Some(block) => Ok(block),
             None => Err(StorageError::OutOfMemory),
         }
     }

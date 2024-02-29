@@ -150,42 +150,42 @@ impl Writer {
             block_id,
         };
 
-        let (block, not_cached) = {
-            let mut cache = self.cache.lock();
-            let block = cache.fetch(&key);
-            match block {
-                Some(block) => (block, false),
-                None => {
-                    let new_block = cache.new_block(&key).unwrap();
-                    (new_block, true)
-                }
-            }
-        };
-
-        if not_cached {
-            let path = format_path(block_id, self.ino);
-            // There is a gap between the block is created and the content is read from the
-            // backend. But according to the current design, concurrency
-            // read/write is not supported.
-            let mut buf = Vec::with_capacity(BLOCK_SIZE);
-            let size = self.backend.read(&path, &mut buf).await.unwrap();
-            if size != 0 {
-                let mut block = block.write();
-                block.as_mut().copy_from_slice(&buf);
+        {
+            let cache = self.cache.lock();
+            if let Some(block) = cache.fetch(&key) {
+                return block;
             }
         }
+
+        let path = format_path(block_id, self.ino);
+        // There is a gap between the block is created and the content is read from the
+        // backend. But according to the current design, concurrency
+        // read/write is not supported.
+        let mut buf = Vec::with_capacity(BLOCK_SIZE);
+        self.backend.read(&path, &mut buf).await.unwrap();
+        let block = {
+            let mut cache = self.cache.lock();
+            let block = cache.new_block(&key, &buf).unwrap();
+            block
+        };
+
         block
     }
 
     pub async fn write(&self, buf: &[u8], slices: &[BlockSlice]) {
+        let mut consume_index = 0;
         for slice in slices {
             let block_id = slice.block_id();
+            let write_content = &buf[consume_index..consume_index + slice.size() as usize];
             self.access(block_id);
             let block = self.fetch_block(block_id).await;
             {
                 let mut block = block.write();
                 block.set_dirty(true);
-                block[0..buf.len()].copy_from_slice(&buf);
+                let start = slice.offset() as usize;
+                let end = start + slice.size() as usize;
+                block[start..end].copy_from_slice(write_content);
+                consume_index += slice.size() as usize;
                 block.inc_version();
             }
             let task = Arc::new(WriteTask {
@@ -233,14 +233,14 @@ impl Writer {
 mod tests {
     use super::*;
     use crate::backend::backend::memory_backend;
-    use crate::block::BLOCK_SIZE;
 
+    const IO_SIZE: usize = 128 * 1024;
     #[tokio::test]
     async fn test_writer() {
         let backend = Arc::new(memory_backend());
         let manger = CacheManager::<CacheKey, LruPolicy<CacheKey>>::new(10);
         let writer = Writer::new(1, manger.clone(), backend);
-        let content = Bytes::from_static(&[b'1'; BLOCK_SIZE]);
+        let content = Bytes::from_static(&[b'1'; IO_SIZE]);
         let slice = BlockSlice::new(0, 0, content.len() as u64);
         writer.write(&content, &[slice]).await;
         let memory_size = manger.lock().len();

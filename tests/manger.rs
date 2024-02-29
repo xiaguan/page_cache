@@ -9,9 +9,8 @@ fn sample_test() {
     let content = Bytes::from_static(&[0; BLOCK_SIZE]);
 
     let manger = CacheManager::<usize, LruPolicy<usize>>::new(cache_size);
-
     {
-        let block_0 = manger.lock().new_block(&0).unwrap();
+        let block_0 = manger.lock().new_block(&0, &content).unwrap();
         let mut block_0 = block_0.write();
         block_0.copy_from_slice(&content);
         block_0.set_dirty(true);
@@ -32,7 +31,7 @@ fn sample_test() {
 
     // Create blocks [1,2,3,4,5,6,7,8,9]
     for i in 1..cache_size {
-        let block = manger.lock().new_block(&i).unwrap();
+        let block = manger.lock().new_block(&i, &content).unwrap();
         let mut block = block.write();
         block.copy_from_slice(&content);
     }
@@ -40,7 +39,7 @@ fn sample_test() {
     // Now the cache is full and all blocks are pinned.
     // We can't create a new block.
     {
-        assert!(manger.lock().new_block(&cache_size).is_none());
+        assert!(manger.lock().new_block(&cache_size, &content).is_none());
     }
 
     {
@@ -49,7 +48,7 @@ fn sample_test() {
     }
 
     // This would evict block 1 and create a new block.
-    assert!(manger.lock().new_block(&cache_size).is_some());
+    assert!(manger.lock().new_block(&cache_size, &content).is_some());
     {
         // Try get block 1
         assert!(manger.lock().fetch(&1).is_none());

@@ -49,6 +49,9 @@ impl Block {
     }
 
     pub fn clear(&mut self) {
+        // for test, when something is equal to 66, it means it's cleared.
+        self.data[0] = 0;
+        self.data[1] = 0;
         self.dirty = false;
         self.pin_count = 0;
         self.version = 0;

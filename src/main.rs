@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use bytes::{Buf, BufMut};
 use page_cache::backend::memory_backend::MemoryBackend;
 use page_cache::block::BLOCK_SIZE;
 use page_cache::handle::handle::OpenFlag;
@@ -8,25 +9,67 @@ use page_cache::mock_io::{CacheKey, MockIO};
 use page_cache::storage::Storage;
 use page_cache::CacheManager;
 use rand::distributions::Distribution;
-use rand::thread_rng;
+use rand::{thread_rng, Rng};
 use rand_distr::Zipf;
 
 // Bench time : default is 30s
 const BENCH_TIME: u64 = 30;
 
 // Backend latency : default is 0ms
-const BACKEND_LATENCY: u64 = 160;
+const BACKEND_LATENCY: u64 = 0;
 
 // Scan read thread num
-const SCAN_READ_THREAD_NUM: u64 = 8;
+const SCAN_READ_THREAD_NUM: u64 = 4;
 
 // Random get thread num
-const RANDOM_GET_THREAD_NUM: u64 = 8;
+const RANDOM_GET_THREAD_NUM: u64 = 4;
 
 // Total test pages : default is 256 * 4mb ,is 1Gb
 const TOTAL_TEST_BLOCKS: usize = 256;
 // mb
 const TOTAL_SIZE: usize = TOTAL_TEST_BLOCKS * BLOCK_SIZE / 1024 / 1024;
+
+const IO_SIZE: usize = 128 * 1025;
+
+fn modify_data(data: &mut Vec<u8>, block_id: u64) {
+    let mut rng = thread_rng();
+    let seed = rng.gen();
+    data.put_u64(seed);
+    data.put_u64(block_id);
+    data.extend_from_slice(&[1; IO_SIZE - 16]);
+    let index = 16 + seed % (IO_SIZE as u64 - 16);
+    data[index as usize] = seed as u8;
+    assert_eq!(data.len(), IO_SIZE);
+}
+
+fn check_data(data: &[u8], block_id: u64) {
+    // 确保data有足够的长度来包含两个u64值和至少一个额外的字节
+    if data.len() < 16 + 1 {
+        panic!("Data does not have enough bytes.");
+    }
+
+    // 读取seed和block_id
+    let seed = u64::from_be_bytes(data[0..8].try_into().unwrap());
+    let stored_block_id = u64::from_be_bytes(data[8..16].try_into().unwrap());
+    // 检查block_id是否匹配
+    if block_id != stored_block_id {
+        panic!(
+            "Block ID does not match. Expected {}, found {}.",
+            block_id, stored_block_id
+        );
+    }
+
+    // 检查在基于seed计算的位置上的字节是否正确
+    let expected_byte = seed as u8;
+    let index = 16 + seed % (IO_SIZE as u64 - 16);
+    let actual_byte = data[index as usize];
+    if expected_byte != actual_byte {
+        panic!(
+            "Data at calculated position does not match. Expected {}, found {}.",
+            expected_byte, actual_byte
+        );
+    }
+}
 
 // Open a read file handle ,read to end, but don't close the handle
 async fn warm_up(storage: Arc<Storage>, ino: u64) {
@@ -34,10 +77,10 @@ async fn warm_up(storage: Arc<Storage>, ino: u64) {
     let fh = storage.open(ino, flag);
     for i in 0..TOTAL_TEST_BLOCKS {
         let buf = storage
-            .read(ino, fh, (i * BLOCK_SIZE) as u64, BLOCK_SIZE)
+            .read(ino, fh, (i * IO_SIZE) as u64, IO_SIZE)
             .await
             .unwrap();
-        assert_eq!(buf.len(), BLOCK_SIZE);
+        assert_eq!(buf.len(), IO_SIZE);
     }
 }
 
@@ -46,12 +89,13 @@ async fn seq_read(storage: Arc<Storage>, ino: u64) {
     let fh = storage.open(ino, flag);
     for i in 0..TOTAL_TEST_BLOCKS {
         let buf = storage
-            .read(10, fh, (i * BLOCK_SIZE) as u64, BLOCK_SIZE)
+            .read(10, fh, (i * IO_SIZE) as u64, IO_SIZE)
             .await
             .unwrap();
-        assert_eq!(buf.len(), BLOCK_SIZE);
+        assert_eq!(buf.len(), IO_SIZE);
+        check_data(&buf, i as u64);
     }
-    // storage.close(fh).await;
+    storage.close(fh).await;
 }
 
 async fn create_a_file(storage: Arc<Storage>, ino: u64) {
@@ -59,15 +103,15 @@ async fn create_a_file(storage: Arc<Storage>, ino: u64) {
     let fh = storage.open(ino, flag);
     let start = std::time::Instant::now();
     for i in 0..TOTAL_TEST_BLOCKS {
-        let content = vec![b'1'; BLOCK_SIZE];
+        let mut content = Vec::new();
+        modify_data(&mut content, i as u64);
         storage
-            .write(ino, fh, (i * BLOCK_SIZE) as u64, &content)
+            .write(ino, fh, (i * IO_SIZE) as u64, &content)
             .await
             .unwrap();
     }
     storage.flush(ino, fh).await;
     storage.close(fh).await;
-    println!("Write done in {:?}", std::time::Instant::now() - start);
     let end = std::time::Instant::now();
     let througput = TOTAL_SIZE as f64 / (end - start).as_secs_f64();
     println!(
@@ -155,6 +199,7 @@ async fn concurrency_read_with_write() {
             throuput
         );
         // assert!(storage.len() == 0);
+        write_handle.await.unwrap();
     }
 }
 
@@ -166,10 +211,11 @@ async fn scan_worker(storage: Arc<Storage>, ino: u64, time: u64) -> usize {
     let mut scan_cnt = 0;
     while tokio::time::Instant::now() - start < tokio::time::Duration::from_secs(time) {
         let buf = storage
-            .read(ino, fh, (i * BLOCK_SIZE) as u64, BLOCK_SIZE)
+            .read(ino, fh, (i * IO_SIZE) as u64, IO_SIZE)
             .await
             .unwrap();
-        assert_eq!(buf.len(), BLOCK_SIZE);
+        assert_eq!(buf.len(), IO_SIZE);
+        check_data(&buf, i as u64);
         i = (i + 1) % TOTAL_TEST_BLOCKS;
         scan_cnt += 1;
     }
@@ -190,10 +236,11 @@ async fn get_worker(storage: Arc<Storage>, ino: u64, time: u64) -> usize {
         let i = zipf.sample(&mut thread_rng()) as usize % TOTAL_TEST_BLOCKS;
 
         let buf = storage
-            .read(ino, fh, (i * BLOCK_SIZE) as u64, BLOCK_SIZE)
+            .read(ino, fh, (i * IO_SIZE) as u64, IO_SIZE)
             .await
             .unwrap();
-        assert_eq!(buf.len(), BLOCK_SIZE);
+        assert_eq!(buf.len(), IO_SIZE);
+        check_data(&buf, i as u64);
         get_cnt += 1;
     }
     get_cnt
@@ -241,7 +288,7 @@ async fn real_workload() {
 }
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    concurrency_read().await;
+    // concurrency_read().await;
     real_workload().await;
     // concurrency_read_with_write().await;
     Ok(())

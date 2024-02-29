@@ -59,11 +59,7 @@ where
 
     /// Create a new block from the cache manager's free list.
     /// Set the block's key to the given key.
-    pub fn new_block(&mut self, key: &K) -> Option<Arc<RwLock<Block>>> {
-        // 1. Get a free block from the free list.
-        // 2. The free list is empty, evict a block from the cache.
-        // 3. If the cache is full of non-evictable blocks, return None.
-
+    pub fn new_block(&mut self, key: &K, data: &[u8]) -> Option<Arc<RwLock<Block>>> {
         // Check if the key is already exist
         if self.map.contains_key(key) {
             // access, then pin,return
@@ -72,8 +68,8 @@ where
             block.write().pin();
             return Some(block);
         }
-        if let Some(new_block) = self.get_free_block(key) {
-            return Some(new_block);
+        let new_block = if let Some(new_block) = self.get_free_block(key) {
+            Some(new_block)
         } else {
             let evict_key = self.policy.evict();
             if evict_key.is_none() {
@@ -88,7 +84,13 @@ where
             self.policy.access(key);
             evict_block.write().pin();
             Some(evict_block)
+        };
+        let new_block = new_block?;
+        {
+            let mut block = new_block.write();
+            block[0..data.len()].copy_from_slice(data);
         }
+        Some(new_block)
     }
 
     /// Decrement the pin count of the block associated with the given key.
