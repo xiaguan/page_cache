@@ -31,6 +31,3 @@ zipf = "7.0.1"
 [profile.release]
 debug = true
 strip = false
-
-[[bin]]
-name = "rwlock_bench"

@@ -24,7 +24,7 @@ const SCAN_READ_THREAD_NUM: u64 = 4;
 // Random get thread num
 const RANDOM_GET_THREAD_NUM: u64 = 4;
 
-// Total test pages : default is 256 * 4mb ,is 1Gb
+// Total test pages : default is 256
 const TOTAL_TEST_BLOCKS: usize = 256;
 // mb
 const TOTAL_SIZE: usize = TOTAL_TEST_BLOCKS * BLOCK_SIZE / 1024 / 1024;
@@ -286,10 +286,26 @@ async fn real_workload() {
         total_scan, total_get
     );
 }
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // concurrency_read().await;
     real_workload().await;
     // concurrency_read_with_write().await;
     Ok(())
+}
+
+#[tokio::test]
+async fn stroage_concurrency_read_test() {
+    concurrency_read().await;
+}
+
+#[tokio::test]
+async fn stroage_concurrency_read_with_write_test() {
+    concurrency_read_with_write().await;
+}
+
+#[tokio::test]
+async fn stroage_real_workload_test() {
+    real_workload().await;
 }
