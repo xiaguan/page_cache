@@ -50,8 +50,8 @@ impl Block {
 
     pub fn clear(&mut self) {
         // for test, when something is equal to 66, it means it's cleared.
-        self.data[0] = 0;
-        self.data[1] = 0;
+        self.data[0] = 66;
+        self.data[1] = 66;
         self.dirty = false;
         self.pin_count = 0;
         self.version = 0;
@@ -59,8 +59,9 @@ impl Block {
 }
 
 pub fn format_path(block_id: u64, ino: u64) -> String {
-    format!("{}-{}", ino, block_id)
+    format!("{}/{}", ino, block_id)
 }
+
 impl std::ops::Deref for Block {
     type Target = [u8];
 

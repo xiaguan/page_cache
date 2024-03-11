@@ -5,6 +5,8 @@ use async_trait::async_trait;
 use parking_lot::Mutex;
 
 use crate::backend::Backend;
+use crate::block::{format_path, BLOCK_SIZE};
+use crate::block_slice::offset_to_slice;
 use crate::error::StorageResult;
 use crate::handle::handle::{FileHandle, Handles, OpenFlag};
 use crate::lru::LruPolicy;
@@ -49,6 +51,30 @@ impl MockIO for Storage {
         let handle = self.handles.get_handle(fh).unwrap();
         handle.close().await;
         self.handles.remove_handle(fh);
+    }
+
+    async fn truncate(&self, ino: u64, old_size: u64, new_size: u64) -> StorageResult<()> {
+        // If new_size == old_size, do nothing
+        if new_size == old_size {
+            return Ok(());
+        }
+        // If new_size > old_size, fill the gap with zeros
+        if new_size > old_size {
+            // Create a new write handle
+            let fh = self.open(ino, OpenFlag::Write);
+            let handle = self.handles.get_handle(fh).unwrap();
+            handle.extend(old_size, new_size).await;
+            self.close(fh).await;
+        } else {
+            // new_size < old_size, we may need remove some block
+            let start = new_size / BLOCK_SIZE as u64 + 1;
+            let end = old_size / BLOCK_SIZE as u64;
+            for block_id in start..end {
+                self.backend.remove(&format_path(block_id, ino)).await?;
+            }
+        }
+
+        Ok(())
     }
 }
 

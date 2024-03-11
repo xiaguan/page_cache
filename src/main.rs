@@ -29,20 +29,20 @@ const TOTAL_TEST_BLOCKS: usize = 256;
 // mb
 const TOTAL_SIZE: usize = TOTAL_TEST_BLOCKS * BLOCK_SIZE / 1024 / 1024;
 
-const IO_SIZE: usize = 128 * 1025;
+const IO_SIZE: usize = 1024;
 
-fn modify_data(data: &mut Vec<u8>, block_id: u64) {
+fn modify_data(data: &mut Vec<u8>, user_index: u64) {
     let mut rng = thread_rng();
     let seed = rng.gen();
     data.put_u64(seed);
-    data.put_u64(block_id);
+    data.put_u64(user_index);
     data.extend_from_slice(&[1; IO_SIZE - 16]);
     let index = 16 + seed % (IO_SIZE as u64 - 16);
     data[index as usize] = seed as u8;
     assert_eq!(data.len(), IO_SIZE);
 }
 
-fn check_data(data: &[u8], block_id: u64) {
+fn check_data(data: &[u8], user_index: u64) {
     // 确保data有足够的长度来包含两个u64值和至少一个额外的字节
     if data.len() < 16 + 1 {
         panic!("Data does not have enough bytes.");
@@ -52,10 +52,10 @@ fn check_data(data: &[u8], block_id: u64) {
     let seed = u64::from_be_bytes(data[0..8].try_into().unwrap());
     let stored_block_id = u64::from_be_bytes(data[8..16].try_into().unwrap());
     // 检查block_id是否匹配
-    if block_id != stored_block_id {
+    if user_index != stored_block_id {
         panic!(
             "Block ID does not match. Expected {}, found {}.",
-            block_id, stored_block_id
+            user_index, stored_block_id
         );
     }
 

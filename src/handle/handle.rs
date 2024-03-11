@@ -92,6 +92,14 @@ impl FileHandle {
         writer.write(buf, &slices).await;
     }
 
+    pub async fn extend(&self, old_size: u64, new_size: u64) {
+        let writer = {
+            let handle = self.inner.read();
+            handle.writer.as_ref().unwrap().clone()
+        };
+        writer.extend(old_size, new_size).await
+    }
+
     pub async fn flush(&self) {
         let writer = {
             let handle = self.inner.read();

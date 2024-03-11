@@ -7,7 +7,7 @@ use tokio::task::JoinHandle;
 
 use crate::backend::Backend;
 use crate::block::{format_path, Block, BLOCK_SIZE};
-use crate::block_slice::BlockSlice;
+use crate::block_slice::{offset_to_slice, BlockSlice};
 use crate::lru::LruPolicy;
 use crate::mock_io::CacheKey;
 use crate::CacheManager;
@@ -37,7 +37,7 @@ struct WriteTask {
 }
 
 async fn write_back_block(task: Arc<WriteTask>) {
-    let path = format!("{}-{}", task.ino, task.block_id);
+    let path = format_path(task.block_id, task.ino);
     loop {
         let (content, version) = {
             let block = task.block.read();
@@ -207,6 +207,14 @@ impl Writer {
             .send(Arc::new(Task::Flush))
             .await
             .unwrap();
+    }
+
+    pub async fn extend(&self, old_size: u64, new_size: u64) {
+        let slices = offset_to_slice(BLOCK_SIZE as u64, old_size, new_size - old_size);
+        for slice in slices {
+            let buf = vec![0u8; slice.size() as usize];
+            self.write(&buf, &[slice]).await;
+        }
     }
 
     pub async fn close(&self) {
