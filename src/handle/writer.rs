@@ -12,27 +12,46 @@ use crate::lru::LruPolicy;
 use crate::mock_io::CacheKey;
 use crate::CacheManager;
 
+/// The `Writer` struct represents a struct responsible for writing blocks of data to a backend storage system
 #[derive(Debug)]
 pub struct Writer {
+    /// The inode number associated with the writer
     ino: u64,
+    /// The cache manager.
     cache: Arc<Mutex<CacheManager<CacheKey, LruPolicy<CacheKey>>>>,
+    /// The backend storage system.
     backend: Arc<dyn Backend>,
+    /// The sender to send tasks to the write back worker.
     write_back_sender: Sender<Arc<Task>>,
+    /// The handle to the write back worker.
     write_back_handle: tokio::sync::Mutex<Option<JoinHandle<()>>>,
+    /// The access keys.
     access_keys: Mutex<Vec<CacheKey>>,
 }
 
+/// The `Task` enum represents the different types of tasks that the write back worker can perform.
+#[derive(Debug)]
 enum Task {
+    /// A pending write task.
     Pending(Arc<WriteTask>),
+    /// A flush task.
     Flush,
+    /// A finish task.
     Finish,
 }
 
+/// The `WriteTask` struct represents a write task
+#[derive(Debug)]
 struct WriteTask {
+    /// The cache manager.
     cache: Arc<Mutex<CacheManager<CacheKey, LruPolicy<CacheKey>>>>,
+    /// The backend storage system.
     backend: Arc<dyn Backend>,
+    /// The inode number associated with the file being written.
     ino: u64,
+    /// The block id.
     block_id: u64,
+    /// The block to be written.
     block: Arc<RwLock<Block>>,
 }
 
@@ -70,6 +89,7 @@ async fn write_back_block(task: Arc<WriteTask>) {
     }
 }
 
+/// Write the blocks to the backend storage system concurrently.
 async fn write_blocks(tasks: &Vec<Arc<WriteTask>>) {
     let mut handles = Vec::new();
     for task in tasks {
@@ -81,9 +101,10 @@ async fn write_blocks(tasks: &Vec<Arc<WriteTask>>) {
     }
 }
 
+/// The `write_back_work` function represents the write back worker.
 async fn write_back_work(mut write_back_receiver: Receiver<Arc<Task>>) {
     //  Create a timer to flush the cache every 200ms.
-    let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
+    let mut interval = tokio::time::interval(std::time::Duration::from_millis(200));
     let mut tasks = Vec::new();
     loop {
         tokio::select! {
@@ -116,6 +137,9 @@ async fn write_back_work(mut write_back_receiver: Receiver<Arc<Task>>) {
 }
 
 impl Writer {
+    /// Create a new `Writer` with the given inode number, cache manager, and backend.
+    #[inline]
+    #[must_use]
     pub fn new(
         ino: u64,
         cache: Arc<Mutex<CacheManager<CacheKey, LruPolicy<CacheKey>>>>,
@@ -135,6 +159,7 @@ impl Writer {
         writer
     }
 
+    /// Record the block access.
     fn access(&self, block_id: u64) {
         let key = CacheKey {
             ino: self.ino,
@@ -144,6 +169,8 @@ impl Writer {
         access_keys.push(key);
     }
 
+    /// Fetch the block from the cache manager.
+    #[inline]
     pub async fn fetch_block(&self, block_id: u64) -> Arc<RwLock<Block>> {
         let key = CacheKey {
             ino: self.ino,
@@ -172,6 +199,8 @@ impl Writer {
         block
     }
 
+    /// Writes data to the file starting at the given offset.
+    #[inline]
     pub async fn write(&self, buf: &[u8], slices: &[BlockSlice]) {
         let mut consume_index = 0;
         for slice in slices {
@@ -202,6 +231,8 @@ impl Writer {
         }
     }
 
+    /// Flushes any pending writes to the file.
+    #[inline]
     pub async fn flush(&self) {
         self.write_back_sender
             .send(Arc::new(Task::Flush))
@@ -209,6 +240,9 @@ impl Writer {
             .unwrap();
     }
 
+    /// Extends the file from the old size to the new size.
+    /// It is only called by the truncate method in the storage system.
+    #[inline]
     pub async fn extend(&self, old_size: u64, new_size: u64) {
         let slices = offset_to_slice(BLOCK_SIZE as u64, old_size, new_size - old_size);
         for slice in slices {
@@ -217,6 +251,7 @@ impl Writer {
         }
     }
 
+    /// Closes the writer associated with the file handle.
     pub async fn close(&self) {
         self.write_back_sender
             .send(Arc::new(Task::Finish))
@@ -240,7 +275,7 @@ impl Writer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::backend::memory_backend;
+    use crate::backend::backend_impl::memory_backend;
 
     const IO_SIZE: usize = 128 * 1024;
     #[tokio::test]

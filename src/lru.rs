@@ -20,6 +20,8 @@ where
 }
 
 impl<K: Clone + Hash + Eq> EvictPolicy<K> for LruPolicy<K> {
+    #[must_use]
+    #[inline]
     fn new(capacity: usize) -> Self {
         LruPolicy {
             inner: Mutex::new(LinkedHashMap::with_capacity(capacity)),
@@ -27,6 +29,7 @@ impl<K: Clone + Hash + Eq> EvictPolicy<K> for LruPolicy<K> {
         }
     }
 
+    #[inline]
     fn access(&self, key: &K) {
         {
             let mut inner = self.inner.lock();
@@ -42,12 +45,13 @@ impl<K: Clone + Hash + Eq> EvictPolicy<K> for LruPolicy<K> {
                 }
                 inner.insert(key.clone(), false);
             } else {
-                inner.to_back(&key);
+                inner.to_back(key);
             }
         }
         self.set_evictable(key, false);
     }
 
+    #[inline]
     fn evict(&self) -> Option<K> {
         let mut inner = self.inner.lock();
         let mut evict_key = None;
@@ -63,9 +67,10 @@ impl<K: Clone + Hash + Eq> EvictPolicy<K> for LruPolicy<K> {
         Some(key)
     }
 
+    #[inline]
     fn set_evictable(&self, key: &K, evictable: bool) {
         let mut inner = self.inner.lock();
-        if let Some(prev_evictable) = inner.get_mut(&key) {
+        if let Some(prev_evictable) = inner.get_mut(key) {
             *prev_evictable = evictable;
         } else {
             // This should not happen.
@@ -73,12 +78,13 @@ impl<K: Clone + Hash + Eq> EvictPolicy<K> for LruPolicy<K> {
         }
     }
 
+    #[inline]
     fn remove(&self, key: &K) {
         let mut inner = self.inner.lock();
-        let evictable = inner.get(&key);
+        let evictable = inner.get(key);
         if let Some(evictable) = evictable {
             if *evictable {
-                inner.remove(&key);
+                inner.remove(key);
             }
         } else {
             // This should not happen.
@@ -86,6 +92,7 @@ impl<K: Clone + Hash + Eq> EvictPolicy<K> for LruPolicy<K> {
         }
     }
 
+    #[inline]
     fn size(&self) -> usize {
         self.inner.lock().len()
     }
@@ -174,6 +181,10 @@ mod tests {
 
         // 5 -> 7 -> 1 -> 6
         cache.access(&6);
+
+        cache.set_evictable(&5, true);
+        cache.set_evictable(&6, true);
+        cache.set_evictable(&1, true);
 
         // Since 7 is not evictable, it should be evicted.
         assert_eq!(cache.evict(), Some(5));

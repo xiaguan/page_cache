@@ -11,15 +11,18 @@ use crate::lru::LruPolicy;
 use crate::mock_io::CacheKey;
 use crate::CacheManager;
 
+/// Reader is a struct responsible for reading blocks of data from a backend storage system,
+/// optionally caching these blocks using a `CacheManager` with LRU eviction policy.
 #[derive(Debug)]
 pub struct Reader {
-    ino: u64,
-    cache: Arc<Mutex<CacheManager<CacheKey, LruPolicy<CacheKey>>>>,
-    backend: Arc<dyn Backend>,
-    access_keys: Mutex<HashSet<CacheKey>>,
+    ino: u64, // The inode number associated with the file being read.
+    cache: Arc<Mutex<CacheManager<CacheKey, LruPolicy<CacheKey>>>>, // Thread-safe reference to the cache manager.
+    backend: Arc<dyn Backend>, // Thread-safe reference to the backend storage system.
+    access_keys: Mutex<HashSet<CacheKey>>, // A set of keys that tracks accessed cache blocks.
 }
 
 impl Reader {
+    /// Creates a new `Reader` instance with the given parameters.
     pub fn new(
         ino: u64,
         cache: Arc<Mutex<CacheManager<CacheKey, LruPolicy<CacheKey>>>>,
@@ -33,7 +36,7 @@ impl Reader {
         }
     }
 
-    // Try fetch the block from `CacheManager`.
+    /// Try fetch the block from `CacheManager`.
     fn fetch_block_from_cache(&self, block_id: u64) -> Option<Arc<RwLock<Block>>> {
         let key = CacheKey {
             ino: self.ino,
@@ -43,6 +46,7 @@ impl Reader {
         cache.fetch(&key)
     }
 
+    /// Mark the block as accessed.
     fn access(&self, block_id: u64) {
         let key = CacheKey {
             ino: self.ino,
@@ -52,6 +56,7 @@ impl Reader {
         access_keys.insert(key);
     }
 
+    /// Fetch the block from the backend storage system.
     async fn fetch_block_from_backend(&self, block_id: u64) -> StorageResult<Arc<RwLock<Block>>> {
         let key = CacheKey {
             ino: self.ino,
@@ -74,6 +79,7 @@ impl Reader {
         }
     }
 
+    /// Reads data from the file starting at the given offset and up to the given length.
     pub async fn read(&self, buf: &mut Vec<u8>, slices: &[BlockSlice]) -> StorageResult<usize> {
         for slice in slices {
             let block_id = slice.block_id();
@@ -99,6 +105,7 @@ impl Reader {
         Ok(buf.len())
     }
 
+    /// Close the reader and remove the accessed cache blocks.
     pub fn close(&self) {
         let access_keys = self.access_keys.lock();
         for key in access_keys.iter() {
@@ -108,13 +115,14 @@ impl Reader {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use std::sync::Arc;
 
     use bytes::Bytes;
 
     use super::*;
-    use crate::backend::backend::memory_backend;
+    use crate::backend::backend_impl::memory_backend;
     use crate::handle::writer::Writer;
     use crate::lru::LruPolicy;
     use crate::mock_io::CacheKey;
@@ -124,12 +132,13 @@ mod tests {
     async fn test_reader() {
         let backend = Arc::new(memory_backend());
         let manger = CacheManager::<CacheKey, LruPolicy<CacheKey>>::new(10);
-        let content = Bytes::from_static(&[b'1'; BLOCK_SIZE]);
+        let content = Bytes::from(vec![b'1'; BLOCK_SIZE]);
         let slice = BlockSlice::new(0, 0, content.len() as u64);
 
         let writer = Writer::new(1, manger.clone(), backend.clone());
         writer.write(&content, &[slice]).await;
         writer.flush().await;
+        writer.close().await;
 
         let reader = Reader::new(1, manger.clone(), backend);
         let slice = BlockSlice::new(0, 0, BLOCK_SIZE as u64);

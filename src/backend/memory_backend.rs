@@ -5,7 +5,7 @@ use dashmap::DashMap;
 
 use super::Backend;
 use crate::error::StorageResult;
-// 实现一个内存中的 Backend
+/// A memory backend for testing purposes.
 #[derive(Debug, Clone)]
 pub struct MemoryBackend {
     map: Arc<DashMap<String, Vec<u8>>>,
@@ -15,6 +15,7 @@ pub struct MemoryBackend {
 
 #[async_trait]
 impl Backend for MemoryBackend {
+    #[inline]
     async fn read(&self, path: &str, buf: &mut [u8]) -> StorageResult<usize> {
         // mock latency
         tokio::time::sleep(tokio::time::Duration::from_millis(self.latency)).await;
@@ -29,6 +30,7 @@ impl Backend for MemoryBackend {
         Ok(len)
     }
 
+    #[inline]
     async fn store(&self, path: &str, buf: &[u8]) -> StorageResult<()> {
         // mock latency
         tokio::time::sleep(tokio::time::Duration::from_millis(self.latency)).await;
@@ -36,6 +38,7 @@ impl Backend for MemoryBackend {
         Ok(())
     }
 
+    #[inline]
     async fn remove(&self, path: &str) -> StorageResult<()> {
         // mock latency
         tokio::time::sleep(tokio::time::Duration::from_millis(self.latency)).await;
@@ -45,6 +48,9 @@ impl Backend for MemoryBackend {
 }
 
 impl MemoryBackend {
+    /// Creates a new `MemoryBackend` instance with the given latency.
+    #[inline]
+    #[must_use]
     pub fn new(latency: u64) -> Self {
         MemoryBackend {
             map: Arc::new(DashMap::new()),

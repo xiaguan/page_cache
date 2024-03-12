@@ -1,13 +1,22 @@
 use smallvec::SmallVec;
 
+/// Represents a slice of a block.
+///
+/// A `BlockSlice` contains the block ID, offset within the block, and size of the slice.
 #[derive(Debug, Clone)]
 pub struct BlockSlice {
+    /// The block ID.
     block_id: u64,
+    /// The offset within the block.
     offset: u64,
+    /// The size of the slice.
     size: u64,
 }
 
 impl BlockSlice {
+    /// Creates a new `BlockSlice` with the given block ID, offset, and size.
+    #[must_use]
+    #[inline]
     pub fn new(block_id: u64, offset: u64, size: u64) -> Self {
         BlockSlice {
             block_id,
@@ -16,19 +25,43 @@ impl BlockSlice {
         }
     }
 
+    /// Returns the block ID of the slice.
+    #[must_use]
+    #[inline]
     pub fn block_id(&self) -> u64 {
         self.block_id
     }
 
+    /// Returns the offset within the block of the slice.
+    #[must_use]
+    #[inline]
     pub fn offset(&self) -> u64 {
         self.offset
     }
 
+    /// Returns the size of the slice.
+    #[must_use]
+    #[inline]
     pub fn size(&self) -> u64 {
         self.size
     }
 }
 
+/// Converts an offset and length into a sequence of `BlockSlice`s.
+///
+/// Given a block size, offset, and length, this function calculates the corresponding
+/// `BlockSlice`s that cover the specified range. The slices are returned as a `SmallVec`
+/// with a maximum inline capacity of 2.
+///
+/// # Arguments
+///
+/// * `block_size` - The size of each block.
+/// * `offset` - The starting offset of the range.
+/// * `len` - The length of the range.
+///
+/// # Returns
+///
+/// A `SmallVec` containing the `BlockSlice`s that cover the specified range.
 pub fn offset_to_slice(block_size: u64, offset: u64, len: u64) -> SmallVec<[BlockSlice; 2]> {
     let mut slices = SmallVec::new();
     let mut current_offset = offset;
@@ -54,6 +87,7 @@ pub fn offset_to_slice(block_size: u64, offset: u64, len: u64) -> SmallVec<[Bloc
 }
 
 #[cfg(test)]
+#[allow(clippy::indexing_slicing)]
 mod tests {
     use super::*;
 

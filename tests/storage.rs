@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bytes::{Buf, BufMut};
+use bytes::BufMut;
 use page_cache::backend::memory_backend::MemoryBackend;
 use page_cache::block::BLOCK_SIZE;
 use page_cache::handle::handle::OpenFlag;

@@ -14,20 +14,32 @@ use crate::lru::LruPolicy;
 use crate::mock_io::CacheKey;
 use crate::CacheManager;
 
+/// The `FileHandleInner` struct represents the inner state of a file handle.
+/// It contains the file handle, reader, and writer.
 #[derive(Debug)]
 pub struct FileHandleInner {
+    /// The file handle.
     fh: u64,
+    /// The reader.
     reader: Option<Arc<Reader>>,
+    /// The writer.
     writer: Option<Arc<Writer>>,
 }
 
+/// The `OpenFlag` enum represents the mode in which a file is opened.
+#[derive(Debug, Clone, Copy)]
 pub enum OpenFlag {
+    /// Open the file for reading.
     Read,
+    /// Open the file for writing.
     Write,
+    /// Open the file for reading and writing.
     ReadAndWrite,
 }
 
 impl FileHandleInner {
+    /// Creates a new `FileHandleInner` instance with the given parameters.
+    #[inline]
     pub fn new(
         fh: u64,
         ino: u64,
@@ -50,12 +62,16 @@ impl FileHandleInner {
         FileHandleInner { fh, reader, writer }
     }
 }
+
+/// The `FileHandle` struct represents a handle to an open file.
+/// It contains an `Arc` of `RwLock<FileHandleInner>`.
 #[derive(Debug, Clone)]
 pub struct FileHandle {
     inner: Arc<RwLock<FileHandleInner>>,
 }
 
 impl FileHandle {
+    /// Creates a new `FileHandle` instance with the given parameters.
     pub fn new(
         fh: u64,
         ino: u64,
@@ -68,10 +84,12 @@ impl FileHandle {
         FileHandle { inner }
     }
 
+    /// Returns the file handle.
     pub fn fh(&self) -> u64 {
         self.inner.read().fh
     }
 
+    /// Reads data from the file starting at the given offset and up to the given length.
     pub async fn read(&self, offset: u64, len: u64) -> StorageResult<Vec<u8>> {
         let reader = {
             let handle = self.inner.read();
@@ -83,6 +101,7 @@ impl FileHandle {
         Ok(buf)
     }
 
+    /// Writes data to the file starting at the given offset.
     pub async fn write(&self, offset: u64, buf: &Vec<u8>) {
         let writer = {
             let handle = self.inner.read();
@@ -92,6 +111,7 @@ impl FileHandle {
         writer.write(buf, &slices).await;
     }
 
+    /// Extends the file from the old size to the new size.
     pub async fn extend(&self, old_size: u64, new_size: u64) {
         let writer = {
             let handle = self.inner.read();
@@ -100,6 +120,7 @@ impl FileHandle {
         writer.extend(old_size, new_size).await
     }
 
+    /// Flushes any pending writes to the file.
     pub async fn flush(&self) {
         let writer = {
             let handle = self.inner.read();
@@ -108,6 +129,7 @@ impl FileHandle {
         writer.flush().await;
     }
 
+    /// Closes the writer associated with the file handle.
     async fn close_writer(&self) {
         let writer = {
             let handle = self.inner.read();
@@ -121,6 +143,7 @@ impl FileHandle {
         }
     }
 
+    /// Closes the file handle, closing both the reader and writer.
     pub async fn close(&self) {
         self.close_writer().await;
         if let Some(reader) = self.inner.read().reader.as_ref() {
@@ -128,15 +151,21 @@ impl FileHandle {
         }
     }
 }
+
 const HANDLE_SHARD_NUM: usize = 100;
 
+/// The `Handles` struct represents a collection of file handles.
+/// It uses sharding to avoid lock contention.
+#[derive(Debug)]
 pub struct Handles {
+    /// Use shard to avoid lock contention
     handles: [Arc<RwLock<Vec<FileHandle>>>; HANDLE_SHARD_NUM],
 }
 
-unsafe impl Send for Handles {}
-
 impl Handles {
+    /// Creates a new `Handles` instance.
+    #[must_use]
+    #[inline]
     pub fn new() -> Self {
         let mut handles: Vec<_> = Vec::with_capacity(HANDLE_SHARD_NUM);
         for _ in 0..HANDLE_SHARD_NUM {
@@ -146,12 +175,14 @@ impl Handles {
         Handles { handles }
     }
 
+    /// Returns the shard index for the given file handle.
     fn hash(&self, fh: u64) -> usize {
         let mut hasher = DefaultHasher::new();
         fh.hash(&mut hasher);
         (hasher.finish() as usize) % HANDLE_SHARD_NUM
     }
 
+    /// Adds a file handle to the collection.
     pub fn add_handle(&self, fh: FileHandle) {
         let index = self.hash(fh.fh());
         let shard = &self.handles[index];
@@ -159,6 +190,7 @@ impl Handles {
         shard_lock.push(fh);
     }
 
+    /// Removes a file handle from the collection.
     pub fn remove_handle(&self, fh: u64) -> Option<FileHandle> {
         let index = self.hash(fh);
         let shard = &self.handles[index];
@@ -170,6 +202,7 @@ impl Handles {
         }
     }
 
+    /// Returns a file handle from the collection.
     pub fn get_handle(&self, fh: u64) -> Option<FileHandle> {
         let index = self.hash(fh);
         let shard = &self.handles[index];
@@ -184,7 +217,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::backend::backend::tmp_fs_backend;
+    use crate::backend::backend_impl::tmp_fs_backend;
     use crate::CacheManager;
 
     #[tokio::test]
